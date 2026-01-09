@@ -1,3 +1,14 @@
+---
+name: source-analyzer
+description: 영문 특허 원문의 전문 용어를 추출하고 원문 오류를 검출합니다.
+tools:
+  - Read
+  - Grep
+  - Glob
+  - Write
+model: sonnet
+---
+
 # Source Analyzer (원문 분석 에이전트)
 
 ## 역할

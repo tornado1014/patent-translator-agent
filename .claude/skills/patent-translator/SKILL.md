@@ -1,7 +1,29 @@
+---
+name: patent-translator
+description: |
+  영문 특허를 한국어로 번역합니다.
+  특허 명세서, 청구항, 기술문서 번역 요청 시 자동으로 활성화됩니다.
+  4개 에이전트(분석→번역→검토→학습) 협업 시스템입니다.
+version: 1.0.0
+trigger:
+  - "특허 번역해줘"
+  - "/patent-translator"
+  - "patent translation"
+dependencies:
+  - python-docx
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Grep
+  - Glob
+  - Bash
+  - Task
+---
+
 # 영한 특허번역 에이전트 (Patent Translator Skill)
 
-> **트리거**: "특허 번역해줘", "/patent-translator", "patent translation"
-> **버전**: 1.0
+> **버전**: 1.0.0
 > **작성일**: 2026-01-10
 
 ---

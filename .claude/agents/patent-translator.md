@@ -1,3 +1,13 @@
+---
+name: patent-translator
+description: 스타일 가이드에 따라 영문 특허를 한국어로 번역합니다.
+tools:
+  - Read
+  - Write
+  - Edit
+model: sonnet
+---
+
 # Patent Translator (번역 에이전트)
 
 ## 역할

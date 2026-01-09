@@ -1,3 +1,12 @@
+---
+name: translation-reviewer
+description: 번역 품질을 검토하고 95점 기준으로 통과/재번역을 판정합니다.
+tools:
+  - Read
+  - Write
+model: sonnet
+---
+
 # Translation Reviewer (검토 에이전트)
 
 ## 역할
