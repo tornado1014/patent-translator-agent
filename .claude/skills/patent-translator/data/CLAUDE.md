@@ -1,8 +1,3 @@
----
-name: claude-mem-context
-description: Auto-generated context file by claude-mem plugin. Not an actual agent.
----
-
 <claude-mem-context>
 # Recent Activity
 

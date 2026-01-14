@@ -35,3 +35,7 @@ venv/
 
 # 개인 설정 (선택적)
 # .claude/settings.local.json
+
+# Claude Code 런타임 캐시
+.claude-mem/
+.claude/plans/

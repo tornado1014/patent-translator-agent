@@ -1,6 +1,9 @@
 ---
 name: feedback-learner
-description: 사용자 피드백을 학습하여 용어집과 오류 패턴을 업데이트합니다.
+description: |
+  Learns from user feedback to update terminology and error patterns.
+  Invoke when: user provides feedback on translation quality or terminology.
+  Updates: terminology-db.md, error-patterns.md, project-tb.md, feedback-log.md
 tools:
   - Read
   - Write

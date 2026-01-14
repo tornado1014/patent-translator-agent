@@ -1,31 +1,36 @@
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/skill-forced-eval-hook.sh"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
-        "matcher": {
-          "tool_name": "Write",
-          "file_path": "**/sections/*.md"
-        },
-        "command": "echo '[Hook] Section file created: $TOOL_INPUT_FILE_PATH'"
-      },
-      {
-        "matcher": {
-          "tool_name": "Write",
-          "file_path": "**/project-tb.md"
-        },
-        "command": "echo '[Hook] Term Base updated: $TOOL_INPUT_FILE_PATH'"
-      },
-      {
-        "matcher": {
-          "tool_name": "Write",
-          "file_path": "**/translation-final.md"
-        },
-        "command": "echo '[Hook] Final translation created - ready for Word conversion'"
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$(dirname \"$TOOL_INPUT_FILE_PATH\")/../..\" && python3 .claude/skills/patent-translator/scripts/validate-translation.py \"$TOOL_INPUT_FILE_PATH\" 2>&1; echo '[FEEDBACK_REQUIRED] 섹션 번역 완료. 반드시 AskUserQuestion으로 사용자에게 피드백을 요청하세요. 피드백 없이 다음 섹션으로 진행하지 마세요.'"
+          }
+        ]
       }
     ],
     "Stop": [
       {
-        "command": "echo '[Hook] Translation session ended. Remember to review output files in output/[project-name]/'"
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[Hook] Translation session ended. Remember to review output files in output/[project-name]/'"
+          }
+        ]
       }
     ]
   },

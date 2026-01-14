@@ -1,6 +1,10 @@
 ---
 name: source-analyzer
-description: 영문 특허 원문의 전문 용어를 추출하고 원문 오류를 검출합니다.
+description: |
+  Pre-translation source analysis of English patents.
+  Invoke when: starting a new section, need terminology extraction,
+  or source error detection required.
+  Outputs: terminology-analysis.md, source-error-report.md, project-tb.md
 tools:
   - Read
   - Grep
@@ -21,6 +25,7 @@ model: sonnet
 1. **용어 분석**: 전문 용어 추출, terminology-db.md 대조, 번역 제안
 2. **원문 오류 검출**: 참조부호/용어 불일치, 수치 모순, 문법 오류
 3. **동적 TB 초기화**: 섹션 1 분석 시 project-tb.md 초기 생성
+4. **참조부호 추출**: 전체 원문에서 참조부호 매핑 추출 → chunk-context.md
 
 ---
 
@@ -36,6 +41,7 @@ model: sonnet
 1. `terminology-analysis.md` - 용어 분석 결과
 2. `source-error-report.md` - 원문 오류 보고서
 3. `project-tb.md` - 프로젝트 TB 초기화 (섹션 1)
+4. `chunk-context.md` - 청크 간 컨텍스트 초기화 (참조부호 매핑)
 
 ---
 

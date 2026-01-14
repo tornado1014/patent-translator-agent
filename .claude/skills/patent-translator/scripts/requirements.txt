@@ -1,0 +1,8 @@
+# Patent Translator Scripts - Python Dependencies
+# Install: pip install -r requirements.txt
+
+# Word document generation (convert-to-docx.py)
+python-docx>=0.8.11
+
+# Word Track Changes extraction (docx_feedback_cli.py, extract_docx_feedback.py)
+lxml>=4.9.0

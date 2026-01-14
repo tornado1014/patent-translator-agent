@@ -1,281 +1,344 @@
 #!/usr/bin/env python3
 """
-번역 품질 검증 스크립트
+영한 특허번역 기계적 검토 스크립트
 
 사용법:
-    python validate-translation.py <translation-file> [--tb <project-tb-file>]
+    python validate-translation.py <section_file.md> [source_file.txt]
 
-예시:
-    python validate-translation.py output/project-001/sections/section-01-tac.md
-    python validate-translation.py output/project-001/sections/section-01-tac.md --tb output/project-001/project-tb.md
+기능:
+    - 참조부호 일치/형식 검사
+    - 청구항 구조 검사
+    - 약어 형식 검사
+    - 서수 형식 검사
+    - 전환구 일관성 검사
+    - 기본 상기 검사
 """
 
-import argparse
-import re
 import sys
+import re
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import List, Tuple, Optional
-
-
-@dataclass
-class ValidationError:
-    """검증 오류"""
-    severity: str  # Critical, Major, Minor
-    category: str  # accuracy, terminology, style, fluency
-    line: int
-    message: str
-    suggestion: Optional[str] = None
-
-
-@dataclass
-class ValidationResult:
-    """검증 결과"""
-    file_path: str
-    total_score: float = 100.0
-    errors: List[ValidationError] = field(default_factory=list)
-
-    # 항목별 점수
-    accuracy_score: float = 50.0
-    terminology_score: float = 25.0
-    style_score: float = 15.0
-    fluency_score: float = 10.0
-
-    def add_error(self, error: ValidationError):
-        self.errors.append(error)
-
-        # 감점 적용
-        deduction = self._get_deduction(error)
-
-        if error.category == "accuracy":
-            self.accuracy_score = max(0, self.accuracy_score - deduction)
-        elif error.category == "terminology":
-            self.terminology_score = max(0, self.terminology_score - deduction)
-        elif error.category == "style":
-            self.style_score = max(0, self.style_score - deduction)
-        elif error.category == "fluency":
-            self.fluency_score = max(0, self.fluency_score - deduction)
-
-        self._recalculate_total()
-
-    def _get_deduction(self, error: ValidationError) -> float:
-        """심각도별 감점"""
-        deductions = {
-            "Critical": {"accuracy": 15, "terminology": 10, "style": 8, "fluency": 5},
-            "Major": {"accuracy": 8, "terminology": 5, "style": 3, "fluency": 3},
-            "Minor": {"accuracy": 3, "terminology": 2, "style": 1, "fluency": 1},
-        }
-        return deductions.get(error.severity, {}).get(error.category, 0)
-
-    def _recalculate_total(self):
-        self.total_score = (
-            self.accuracy_score +
-            self.terminology_score +
-            self.style_score +
-            self.fluency_score
-        )
-
-    def is_passed(self) -> bool:
-        return self.total_score >= 95.0
+from typing import List, Dict, Tuple
 
 
 class TranslationValidator:
-    """번역 검증기"""
+    def __init__(self, target_path: str, source_path: str = None):
+        self.target_path = Path(target_path)
+        self.target_text = self.target_path.read_text(encoding='utf-8')
 
-    def __init__(self, tb_path: Optional[str] = None):
-        self.tb_terms = {}
-        if tb_path:
-            self._load_tb(tb_path)
+        # 프로젝트 디렉토리 찾기 (sections/ 상위)
+        self.project_dir = self._find_project_dir()
 
-    def _load_tb(self, tb_path: str):
-        """project-tb.md 로드"""
-        try:
-            with open(tb_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+        # 원문 파일이 있으면 로드
+        self.source_text = None
+        if source_path:
+            source_file = Path(source_path)
+            if source_file.exists():
+                self.source_text = source_file.read_text(encoding='utf-8')
 
-            # 테이블에서 용어 추출 (| English | Korean | 형식)
-            pattern = r'\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|'
-            for match in re.finditer(pattern, content):
-                eng = match.group(1).strip()
-                kor = match.group(2).strip()
-                if eng and kor and eng != "English" and eng != "---":
-                    self.tb_terms[eng.lower()] = kor
-        except Exception as e:
-            print(f"Warning: TB 로드 실패 - {e}", file=sys.stderr)
+        # 동적 컨텍스트 데이터 로드
+        self.context_data = self._load_context_data()
 
-    def validate(self, file_path: str) -> ValidationResult:
-        """번역 파일 검증"""
-        result = ValidationResult(file_path=file_path)
+        self.errors: List[Dict] = []
+        self.warnings: List[Dict] = []
 
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-        except Exception as e:
-            result.add_error(ValidationError(
-                severity="Critical",
-                category="accuracy",
-                line=0,
-                message=f"파일 읽기 실패: {e}"
-            ))
-            return result
+    def _find_project_dir(self) -> Path:
+        """프로젝트 디렉토리 찾기 (sections/ 상위 또는 output/[project]/)"""
+        current = self.target_path.parent
+        if current.name == 'sections':
+            return current.parent
+        # output/[project]/ 패턴 찾기
+        for parent in self.target_path.parents:
+            if parent.parent.name == 'output':
+                return parent
+        return current
 
-        content = ''.join(lines)
+    def _load_context_data(self) -> Dict:
+        """chunk-context.md와 project-tb.md에서 동적 데이터 로드"""
+        data = {'key_nouns': [], 'reference_map': {}}
 
-        # 1. 상기(Antecedent Basis) 검사
-        self._check_antecedent_basis(lines, result)
+        # chunk-context.md에서 핵심 명사 로드
+        chunk_context = self.project_dir / 'chunk-context.md'
+        if chunk_context.exists():
+            content = chunk_context.read_text(encoding='utf-8')
+            # "## 핵심 명사 상기 상태" 섹션 파싱
+            noun_section = re.search(r'## 핵심 명사.*?\n(.*?)(?=\n##|\Z)', content, re.DOTALL)
+            if noun_section:
+                for line in noun_section.group(1).split('\n'):
+                    # 테이블 행 파싱: | 명사 | 첫 등장 | 상기 필요 |
+                    match = re.match(r'\|\s*([^|]+)\s*\|', line)
+                    if match and match.group(1).strip() not in ['명사', '---', '']:
+                        data['key_nouns'].append(match.group(1).strip())
 
-        # 2. 용어 일관성 검사
-        self._check_terminology_consistency(content, result)
+        # project-tb.md에서 핵심 용어 추가 로드
+        project_tb = self.project_dir / 'project-tb.md'
+        if project_tb.exists():
+            content = project_tb.read_text(encoding='utf-8')
+            # Korean 열에서 용어 추출
+            for line in content.split('\n'):
+                match = re.match(r'\|[^|]+\|\s*([가-힣\s]+)\s*\|', line)
+                if match and match.group(1).strip() not in ['Korean', '---', '']:
+                    term = match.group(1).strip()
+                    if len(term) >= 2 and term not in data['key_nouns']:
+                        data['key_nouns'].append(term)
 
-        # 3. 스타일 검사
-        self._check_style(lines, result)
+        return data
 
-        # 4. 유창성 검사
-        self._check_fluency(lines, result)
+    def add_error(self, check_type: str, message: str, location: str = None):
+        self.errors.append({
+            'type': check_type,
+            'message': message,
+            'location': location or 'N/A'
+        })
 
-        return result
+    def add_warning(self, check_type: str, message: str, location: str = None):
+        self.warnings.append({
+            'type': check_type,
+            'message': message,
+            'location': location or 'N/A'
+        })
 
-    def _check_antecedent_basis(self, lines: List[str], result: ValidationResult):
-        """상기 누락 검사"""
-        # 첫 등장한 명사 추적
-        first_mentions = set()
+    def check_reference_format(self) -> bool:
+        """참조부호 형식 검사: 명사(10) vs 명사 (10)"""
+        # 공백 + 괄호 + 숫자 패턴 찾기 (잘못된 형식)
+        bad_pattern = re.compile(r'[가-힣a-zA-Z]\s+\(\d+[a-zA-Z]?\)')
 
-        # 상기가 붙어야 하는 패턴 (재등장)
-        sanggi_pattern = re.compile(r'상기\s+(\S+)')
-        noun_pattern = re.compile(r'(?:상기\s+)?(\S+(?:물|체|제|기|판|부|층|막|액))')
+        for i, line in enumerate(self.target_text.split('\n'), 1):
+            matches = bad_pattern.findall(line)
+            for match in matches:
+                self.add_error(
+                    'reference_format',
+                    f'참조부호 형식 오류: "{match}" → 공백 제거 필요',
+                    f'Line {i}'
+                )
 
-        for i, line in enumerate(lines, 1):
-            # 상기가 있는 명사 찾기
-            sanggi_matches = sanggi_pattern.findall(line)
-            for noun in sanggi_matches:
-                if noun not in first_mentions:
-                    # 첫 등장인데 상기가 붙어있음 - 오류
-                    result.add_error(ValidationError(
-                        severity="Major",
-                        category="terminology",
-                        line=i,
-                        message=f"첫 등장 명사에 '상기' 사용: '{noun}'",
-                        suggestion=f"'{noun}'의 첫 등장 시 '상기' 제거"
-                    ))
-                first_mentions.add(noun)
+        return len([e for e in self.errors if e['type'] == 'reference_format']) == 0
 
-            # 상기 없는 명사 찾기 (재등장 시 오류)
-            all_nouns = noun_pattern.findall(line)
-            for noun in all_nouns:
-                clean_noun = noun.replace("상기 ", "").strip()
-                if clean_noun in first_mentions and f"상기 {clean_noun}" not in line:
-                    # 재등장인데 상기가 없음 - 청구항에서는 Critical
-                    if "청구항" in ''.join(lines[:10]) or "claim" in ''.join(lines[:10]).lower():
-                        severity = "Critical"
-                    else:
-                        severity = "Major"
+    def check_claim_structure(self) -> bool:
+        """청구항 구조 검사"""
+        # 청구항 패턴 찾기
+        claim_pattern = re.compile(r'\[청구항\s*(\d+)\]')
+        claims = claim_pattern.findall(self.target_text)
 
-                    # 같은 줄에 상기+명사가 있으면 skip
-                    if re.search(rf'상기\s+{re.escape(clean_noun)}', line):
-                        continue
+        if not claims:
+            return True  # 청구항이 없으면 검사 스킵
 
-                first_mentions.add(clean_noun)
+        # 청구항 번호 연속성 검사
+        claim_numbers = [int(c) for c in claims]
+        expected = list(range(1, max(claim_numbers) + 1))
+        missing = set(expected) - set(claim_numbers)
 
-    def _check_terminology_consistency(self, content: str, result: ValidationResult):
-        """용어 일관성 검사"""
-        if not self.tb_terms:
-            return
+        if missing:
+            self.add_error(
+                'claim_structure',
+                f'청구항 번호 누락: {sorted(missing)}',
+                'Claims section'
+            )
 
-        # TB에 있는 용어의 다른 번역 사용 여부 확인
-        # (간략화된 검사 - 실제로는 더 정교한 로직 필요)
-        pass
+        # 각 청구항이 마침표로 끝나는지 검사
+        claim_blocks = re.split(r'\[청구항\s*\d+\]', self.target_text)
+        for i, block in enumerate(claim_blocks[1:], 1):
+            next_claim = re.search(r'\[청구항\s*\d+\]', block)
+            if next_claim:
+                block = block[:next_claim.start()]
 
-    def _check_style(self, lines: List[str], result: ValidationResult):
-        """스타일 검사"""
-        for i, line in enumerate(lines, 1):
-            # 참조부호 형식 검사: 핸드가드 (12) → 핸드가드(12)
-            if re.search(r'\S\s+\(\d+\)', line):
-                result.add_error(ValidationError(
-                    severity="Minor",
-                    category="style",
-                    line=i,
-                    message="참조부호 앞 불필요한 공백",
-                    suggestion="참조부호는 명사에 직접 붙임 (예: 하우징(10))"
-                ))
+            block = block.strip()
+            if block and not block.rstrip().endswith('.'):
+                last_word = block.split()[-1] if block.split() else ''
+                if last_word not in ['시스템.', '방법.', '매체.']:
+                    self.add_warning(
+                        'claim_structure',
+                        f'청구항 {i}: 마침표로 종결되지 않음',
+                        f'Claim {i}'
+                    )
 
-            # 서수 형식 검사: 첫째/둘째 → 제1/제2
-            if re.search(r'첫째|둘째|셋째|넷째', line):
-                result.add_error(ValidationError(
-                    severity="Minor",
-                    category="style",
-                    line=i,
-                    message="서수 형식 오류",
-                    suggestion="서수는 '제1, 제2, 제3' 형식 사용"
-                ))
+        return len([e for e in self.errors if e['type'] == 'claim_structure']) == 0
 
-            # SI 단위 공백 검사: 10mL → 10 mL
-            if re.search(r'\d+(?:mL|mg|kg|mm|cm|nm|μm|Hz|kHz|MHz)', line):
-                result.add_error(ValidationError(
-                    severity="Minor",
-                    category="style",
-                    line=i,
-                    message="SI 단위 앞 공백 누락",
-                    suggestion="숫자와 단위 사이에 공백 (예: 10 mL)"
-                ))
+    def check_ordinal_format(self) -> bool:
+        """서수 형식 검사: 제1, 제2 vs 첫째, 둘째"""
+        bad_ordinals = ['첫째', '둘째', '셋째', '넷째', '다섯째', '첫번째', '두번째', '세번째']
 
-    def _check_fluency(self, lines: List[str], result: ValidationResult):
-        """유창성 검사"""
-        for i, line in enumerate(lines, 1):
-            # 번역투 패턴 검사
-            if re.search(r'~에 의해\s+~되', line):
-                result.add_error(ValidationError(
-                    severity="Minor",
-                    category="fluency",
-                    line=i,
-                    message="번역투 표현",
-                    suggestion="능동태로 변환 권장"
-                ))
+        for i, line in enumerate(self.target_text.split('\n'), 1):
+            for ordinal in bad_ordinals:
+                if ordinal in line:
+                    self.add_warning(
+                        'ordinal_format',
+                        f'서수 형식: "{ordinal}" → "제N" 형식 권장',
+                        f'Line {i}'
+                    )
 
+        return len([e for e in self.errors if e['type'] == 'ordinal_format']) == 0
 
-def print_result(result: ValidationResult):
-    """결과 출력"""
-    print("=" * 60)
-    print(f"번역 검증 결과: {result.file_path}")
-    print("=" * 60)
+    def check_transitional_phrases(self) -> bool:
+        """전환구 일관성 검사"""
+        if self.source_text:
+            if 'comprising' in self.source_text.lower():
+                if '구성되는' in self.target_text and '포함하는' not in self.target_text:
+                    self.add_warning(
+                        'transitional_phrase',
+                        'comprising → "포함하는" 권장 (구성되는 = consisting of)',
+                        'General'
+                    )
 
-    print(f"\n총점: {result.total_score:.1f}/100")
-    print(f"  - 정확성: {result.accuracy_score:.1f}/50")
-    print(f"  - 용어 일관성: {result.terminology_score:.1f}/25")
-    print(f"  - 스타일 준수: {result.style_score:.1f}/15")
-    print(f"  - 유창성: {result.fluency_score:.1f}/10")
+            if 'consisting of' in self.source_text.lower():
+                if '이루어지는' not in self.target_text and '구성되는' not in self.target_text:
+                    self.add_warning(
+                        'transitional_phrase',
+                        'consisting of → "이루어지는/구성되는" 필요 (closed-ended)',
+                        'General'
+                    )
 
-    print(f"\n결과: {'✅ 통과 (95점 이상)' if result.is_passed() else '❌ 수정 필요 (95점 미만)'}")
+        return True
 
-    if result.errors:
-        print(f"\n검출된 오류 ({len(result.errors)}건):")
-        print("-" * 60)
+    def check_reference_completeness(self) -> bool:
+        """원문-번역문 참조부호 일치 검사"""
+        if not self.source_text:
+            return True  # 원문 없으면 검사 스킵
 
-        for err in result.errors:
-            print(f"[{err.severity}] Line {err.line}: {err.message}")
-            if err.suggestion:
-                print(f"    → {err.suggestion}")
+        # 원문과 번역문에서 참조부호 추출
+        source_refs = set(re.findall(r'\((\d+[a-zA-Z]?)\)', self.source_text))
+        target_refs = set(re.findall(r'\((\d+[a-zA-Z]?)\)', self.target_text))
 
-        print("-" * 60)
+        # 누락된 참조부호
+        missing = source_refs - target_refs
+        if missing:
+            self.add_error(
+                'reference_completeness',
+                f'번역문에 누락된 참조부호: {sorted(missing, key=lambda x: int(re.match(r"\d+", x).group()))}',
+                'General'
+            )
 
-    return 0 if result.is_passed() else 1
+        # 원문에 없는 참조부호 (경고)
+        extra = target_refs - source_refs
+        if extra:
+            self.add_warning(
+                'reference_completeness',
+                f'원문에 없는 참조부호 (확인 필요): {sorted(extra, key=lambda x: int(re.match(r"\d+", x).group()))}',
+                'General'
+            )
+
+        return len(missing) == 0
+
+    def check_sanggi_basic(self) -> bool:
+        """기본 상기 검사 (동적 데이터 기반)"""
+        # 동적으로 로드된 핵심 명사 사용, 없으면 기본값
+        key_nouns = self.context_data.get('key_nouns', [])
+        if not key_nouns:
+            # 폴백: 일반적인 특허 용어
+            key_nouns = ['장치', '시스템', '방법', '구성요소', '모듈']
+
+        for noun in key_nouns:
+            first_match = re.search(rf'(?<!상기\s){re.escape(noun)}', self.target_text)
+            if first_match:
+                after_first = self.target_text[first_match.end():]
+                bare_matches = re.findall(rf'(?<!상기\s)(?<!상기){re.escape(noun)}', after_first)
+                sanggi_matches = re.findall(rf'상기\s*{re.escape(noun)}', after_first)
+
+                if bare_matches and len(bare_matches) > len(sanggi_matches):
+                    self.add_warning(
+                        'sanggi_check',
+                        f'"{noun}": 재등장 시 "상기" 누락 가능성 ({len(bare_matches)}건)',
+                        'General'
+                    )
+
+        return True
+
+    def check_abbreviation_format(self) -> bool:
+        """약어 형식 검사"""
+        abbr_pattern = re.compile(r'\b([A-Z]{2,5})\b')
+        abbrs_in_text = set(abbr_pattern.findall(self.target_text))
+
+        for abbr in abbrs_in_text:
+            if abbr in ['RAID', 'LUN', 'SSD', 'RG', 'RU', 'FDP', 'ECC']:
+                definition_pattern = re.compile(
+                    rf'[가-힣\s]+[\(\[][^)]*{abbr}[^\]]*[\)\]]|'
+                    rf'{abbr}[\(\[][^)]*[가-힣][^\]]*[\)\]]'
+                )
+                if not definition_pattern.search(self.target_text):
+                    first_occurrence = self.target_text.find(abbr)
+                    context = self.target_text[max(0, first_occurrence-50):first_occurrence+50]
+                    if f'({abbr})' not in context and f'[{abbr}]' not in context:
+                        if f', {abbr}' not in context:
+                            self.add_warning(
+                                'abbreviation_format',
+                                f'약어 "{abbr}": 첫 등장 시 풀이 형식 확인 필요',
+                                'General'
+                            )
+
+        return True
+
+    def check_number_unit_spacing(self) -> bool:
+        """숫자-단위 공백 검사"""
+        units = ['mL', 'mg', 'kg', 'mm', 'cm', 'nm', 'μm', 'kHz', 'MHz', 'GHz']
+
+        for unit in units:
+            pattern = re.compile(rf'\d{re.escape(unit)}')
+            for i, line in enumerate(self.target_text.split('\n'), 1):
+                if pattern.search(line):
+                    self.add_warning(
+                        'number_unit_spacing',
+                        f'숫자와 단위({unit}) 사이 공백 필요',
+                        f'Line {i}'
+                    )
+
+        return True
+
+    def validate_all(self) -> Tuple[bool, str]:
+        """모든 검사 실행"""
+        self.check_reference_format()
+        self.check_reference_completeness()  # 참조부호 완전성 검사 추가
+        self.check_claim_structure()
+        self.check_ordinal_format()
+        self.check_transitional_phrases()
+        self.check_sanggi_basic()
+        self.check_abbreviation_format()
+        self.check_number_unit_spacing()
+
+        return self.generate_report()
+
+    def generate_report(self) -> Tuple[bool, str]:
+        """검증 보고서 생성"""
+        lines = []
+
+        if self.errors:
+            lines.append('[MECHANICAL_CHECK_FAILED] 기계적 검토 오류 발견')
+            lines.append('')
+            lines.append('## 오류 (수정 필요)')
+            for err in self.errors:
+                lines.append(f"  - [{err['type']}] {err['message']} ({err['location']})")
+
+        if self.warnings:
+            if not self.errors:
+                lines.append('[MECHANICAL_CHECK_PASSED] 기계적 검토 통과 (경고 있음)')
+            lines.append('')
+            lines.append('## 경고 (검토 권장)')
+            for warn in self.warnings:
+                lines.append(f"  - [{warn['type']}] {warn['message']} ({warn['location']})")
+
+        if not self.errors and not self.warnings:
+            lines.append('[MECHANICAL_CHECK_PASSED] 기계적 검토 통과')
+
+        passed = len(self.errors) == 0
+        return passed, '\n'.join(lines)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="번역 품질 검증")
-    parser.add_argument("file", help="검증할 번역 파일")
-    parser.add_argument("--tb", help="project-tb.md 파일 경로")
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
 
-    args = parser.parse_args()
+    target_path = sys.argv[1]
+    source_path = sys.argv[2] if len(sys.argv) > 2 else None
 
-    if not Path(args.file).exists():
-        print(f"Error: 파일을 찾을 수 없음 - {args.file}", file=sys.stderr)
-        return 1
+    if not Path(target_path).exists():
+        print(f"Error: 파일을 찾을 수 없습니다: {target_path}")
+        sys.exit(1)
 
-    validator = TranslationValidator(args.tb)
-    result = validator.validate(args.file)
+    validator = TranslationValidator(target_path, source_path)
+    passed, report = validator.validate_all()
 
-    return print_result(result)
+    print(report)
+    sys.exit(0 if passed else 1)
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == '__main__':
+    main()
