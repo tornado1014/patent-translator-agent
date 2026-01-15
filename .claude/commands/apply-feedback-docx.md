@@ -52,7 +52,12 @@ feedback-review-report.md
     - style/other → feedback-log.md
     │
     ▼
-[3] 결과 보고
+[3] 번역 결과물에 직접 반영 ← NEW
+    - translation-final.md 텍스트 교체
+    - 백업 파일 자동 생성 (.md.backup)
+    │
+    ▼
+[4] 결과 보고
     - 적용 건수 출력
     - 실패 항목 알림
 ```
@@ -70,12 +75,13 @@ feedback-review-report.md
 
 ```
 === 피드백 적용 완료 ===
-적용 완료: 8건
+적용 완료: 13건
   - 용어 추가: 3건
   - 용어 수정: 1건
   - 오류 패턴: 2건
   - 스타일 로그: 2건
   - 프로젝트 TB: 3건
+  - 번역 결과물 수정: 5건
 ```
 
 ## 내부 스크립트

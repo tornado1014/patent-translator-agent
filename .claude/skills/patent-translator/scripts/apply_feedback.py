@@ -68,6 +68,13 @@ class FeedbackApplier:
             except Exception as e:
                 self.result.failures.append(f"[{cf.id}] {str(e)}")
 
+        # translation-final.md에 직접 텍스트 교체 적용
+        try:
+            changes = self._apply_to_translation_final(classified_feedback, approved_ids)
+            self.result.translation_changes = changes
+        except Exception as e:
+            self.result.failures.append(f"[translation-final] {str(e)}")
+
         return self.result
 
     def _apply_single(self, cf: ClassifiedFeedback) -> None:
@@ -244,6 +251,109 @@ class FeedbackApplier:
         # 간단한 통계 업데이트 (정규식으로 카운트)
         # 실제 구현에서는 더 정교한 파싱 필요
         pass
+
+    def _apply_to_translation_final(
+        self, classified_feedback: List[ClassifiedFeedback], approved_ids: Set[int]
+    ) -> int:
+        """
+        승인된 피드백을 translation-final.md에 직접 적용합니다.
+
+        Track Changes의 삭제+삽입 쌍을 찾아 텍스트를 교체합니다.
+
+        Returns:
+            적용된 변경 건수
+        """
+        final_path = self.project_dir / "translation-final.md"
+        if not final_path.exists():
+            return 0
+
+        content = final_path.read_text(encoding="utf-8")
+        original_content = content  # 백업용
+        changes_applied = 0
+
+        # 승인된 피드백만 필터링
+        approved_feedback = [cf for cf in classified_feedback if cf.id in approved_ids]
+
+        # 문단 인덱스 기준으로 역순 정렬 (뒤에서부터 교체해야 인덱스 변화 방지)
+        approved_feedback.sort(key=lambda x: x.paragraph_index, reverse=True)
+
+        for cf in approved_feedback:
+            # 삭제+삽입 쌍 (텍스트 교체)
+            if cf.original_text and cf.suggested_text:
+                # 정확한 텍스트 매칭
+                if cf.original_text in content:
+                    content = content.replace(cf.original_text, cf.suggested_text, 1)
+                    changes_applied += 1
+                else:
+                    # 공백/줄바꿈 정규화 후 재시도
+                    normalized_original = self._normalize_whitespace(cf.original_text)
+                    normalized_content = self._normalize_whitespace(content)
+                    if normalized_original in normalized_content:
+                        # 원본에서 위치 찾기
+                        idx = normalized_content.find(normalized_original)
+                        if idx >= 0:
+                            # 원본 콘텐츠에서 해당 위치 근처 검색
+                            search_start = max(0, idx - 50)
+                            search_end = min(len(content), idx + len(cf.original_text) + 50)
+                            segment = content[search_start:search_end]
+
+                            # 유사 텍스트 찾기 및 교체
+                            similar = self._find_similar_text(segment, cf.original_text)
+                            if similar:
+                                content = content.replace(similar, cf.suggested_text, 1)
+                                changes_applied += 1
+
+            # 삽입만 있는 경우 (컨텍스트 기반)
+            elif cf.suggested_text and not cf.original_text:
+                # 컨텍스트에서 "[문단 N]" 정보 추출
+                if cf.context:
+                    # 삽입은 복잡하므로 로깅만 수행
+                    pass
+
+            # 삭제만 있는 경우
+            elif cf.original_text and not cf.suggested_text:
+                if cf.original_text in content:
+                    content = content.replace(cf.original_text, "", 1)
+                    changes_applied += 1
+
+        # 변경사항이 있으면 파일 저장
+        if changes_applied > 0 and content != original_content:
+            # 백업 생성
+            backup_path = final_path.with_suffix(".md.backup")
+            backup_path.write_text(original_content, encoding="utf-8")
+
+            # 변경된 내용 저장
+            final_path.write_text(content, encoding="utf-8")
+
+        return changes_applied
+
+    def _normalize_whitespace(self, text: str) -> str:
+        """공백과 줄바꿈을 정규화합니다."""
+        # 연속 공백을 단일 공백으로
+        normalized = re.sub(r"\s+", " ", text)
+        return normalized.strip()
+
+    def _find_similar_text(self, segment: str, target: str) -> Optional[str]:
+        """세그먼트에서 대상 텍스트와 유사한 부분을 찾습니다."""
+        # 간단한 퍼지 매칭 - 공백만 다른 경우 찾기
+        target_normalized = self._normalize_whitespace(target)
+        words = target_normalized.split()
+
+        if len(words) < 2:
+            return None
+
+        # 첫 몇 단어로 시작점 찾기
+        start_pattern = r"\s*".join(re.escape(w) for w in words[:3])
+        match = re.search(start_pattern, segment, re.IGNORECASE)
+
+        if match:
+            # 전체 패턴 매칭 시도
+            full_pattern = r"\s*".join(re.escape(w) for w in words)
+            full_match = re.search(full_pattern, segment, re.IGNORECASE)
+            if full_match:
+                return full_match.group(0)
+
+        return None
 
     def _create_terminology_template(self) -> str:
         """terminology-db.md 템플릿을 생성합니다."""

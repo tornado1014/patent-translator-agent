@@ -215,6 +215,7 @@ class ApplyResult:
     errors_added: int = 0
     styles_logged: int = 0
     project_tb_updated: int = 0
+    translation_changes: int = 0  # translation-final.md 직접 수정 건수
     failures: List[str] = field(default_factory=list)
 
     @property
@@ -224,6 +225,7 @@ class ApplyResult:
             + self.terminology_updated
             + self.errors_added
             + self.styles_logged
+            + self.translation_changes
         )
 
     @property
@@ -238,6 +240,7 @@ class ApplyResult:
             f"  - 오류 패턴: {self.errors_added}건",
             f"  - 스타일 로그: {self.styles_logged}건",
             f"  - 프로젝트 TB: {self.project_tb_updated}건",
+            f"  - 번역 결과물 수정: {self.translation_changes}건",
         ]
         if self.failures:
             lines.append(f"실패: {len(self.failures)}건")
