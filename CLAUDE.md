@@ -83,9 +83,25 @@ output/[project-name]/
 └── translation-final.docx
 ```
 
+## 섹션 병합 규칙 (MANDATORY)
+
+`output/*/sections/` 폴더의 파일을 병합할 때는 **반드시**:
+
+1. `python .claude/skills/patent-translator/scripts/merge-sections.py output/[project] --json` 사용
+2. `cat`, `Read+Write` 직접 병합 **금지**
+
+이 규칙은 한국 특허 표준 섹션 순서를 보장합니다:
+> 발명의 명칭 → 기술분야 → 배경기술 → 도면 → 상세설명 → 청구범위 → 요약서
+
+**PreToolUse 훅이 `cat.*section.*\.md` 패턴을 감지하면 자동 차단됩니다.**
+
 ## 워드 변환
 
 ```bash
+# 1단계: 섹션 병합 (필수)
+python .claude/skills/patent-translator/scripts/merge-sections.py output/[project] --json
+
+# 2단계: 워드 변환
 python .claude/skills/patent-translator/scripts/convert-to-docx.py output/[project]/translation-final.md
 ```
 
