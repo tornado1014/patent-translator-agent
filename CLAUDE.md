@@ -106,3 +106,36 @@ python .claude/skills/patent-translator/scripts/convert-to-docx.py output/[proje
 ```
 
 포맷: 바탕체 12pt, 양쪽정렬, 1.5줄 간격
+
+## Deep Interview 스킬
+
+요구사항 정리 및 스펙 문서 완성을 위한 심층 인터뷰 스킬.
+Anthropic 엔지니어 Thariq의 "인터뷰 프롬프트" 기반.
+
+### 트리거 명령어
+- `/deep-interview`
+- `/deep-interview @SPEC.md`
+- "심층 인터뷰해줘"
+- "스펙 인터뷰"
+
+### 워크플로우
+1. **문서 & 코드 분석**: SPEC 문서 및 코드베이스 탐색
+2. **심층 인터뷰**: 4개 카테고리별 질문
+   - 기술적 구현 (아키텍처, 데이터 모델, API)
+   - UI & UX (흐름, 인터페이스, 피드백)
+   - 우려 사항 (보안, 성능, 확장성)
+   - 트레이드오프 (복잡도 vs 성능, 시간 vs 품질)
+3. **스펙 완성**: 인터뷰 내용 구조화 및 문서 업데이트
+
+### 관련 파일
+| 파일 | 경로 | 역할 |
+|------|------|------|
+| 스킬 정의 | `.claude/skills/deep-interview/SKILL.md` | 워크플로우 + 사용법 |
+| 인터뷰어 에이전트 | `.claude/agents/deep-interviewer.md` | Opus 기반 질문 생성 |
+| 질문 템플릿 | `.claude/skills/deep-interview/data/question-templates.md` | 4개 카테고리 질문 |
+
+### 특징
+- 맥락 기반 질문 (상투적 질문 금지)
+- explore 에이전트로 코드베이스 자동 분석
+- AskUserQuestion으로 대화형 인터뷰 진행
+- 완성까지 계속 (사용자가 "완료" 선언 시 종료)
