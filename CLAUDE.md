@@ -28,6 +28,7 @@
 | Patent Translator | `.claude/agents/patent-translator.md` | 번역 수행 |
 | Translation Reviewer | `.claude/agents/translation-reviewer.md` | 품질 검토 (95점 기준) |
 | Feedback Learner | `.claude/agents/feedback-learner.md` | 피드백 학습 |
+| Terminology Conflict Resolver | `.claude/agents/terminology-conflict-resolver.md` | 도메인별 용어 충돌 해결 |
 
 ## 데이터 파일
 
