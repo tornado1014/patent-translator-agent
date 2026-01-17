@@ -162,8 +162,21 @@ def convert_to_docx(md_path, docx_path=None, template_path=None):
         docx_path = Path(docx_path)
 
     # 마크다운 읽기
-    with open(md_path, 'r', encoding='utf-8') as f:
-        md_content = f.read()
+    try:
+        with open(md_path, 'r', encoding='utf-8') as f:
+            md_content = f.read()
+    except FileNotFoundError:
+        print(f"Error: 마크다운 파일을 찾을 수 없습니다: {md_path}")
+        return False
+    except PermissionError:
+        print(f"Error: 마크다운 파일 읽기 권한이 없습니다: {md_path}")
+        return False
+    except UnicodeDecodeError:
+        print(f"Error: 마크다운 파일 인코딩 오류 (UTF-8 필요): {md_path}")
+        return False
+    except Exception as e:
+        print(f"Error: 마크다운 파일 읽기 실패: {md_path} - {str(e)}")
+        return False
 
     # 템플릿 사용 또는 새 문서 생성
     if template_path and Path(template_path).exists():
@@ -263,7 +276,18 @@ def convert_to_docx(md_path, docx_path=None, template_path=None):
             doc.add_paragraph()
 
     # 저장
-    doc.save(str(docx_path))
+    try:
+        doc.save(str(docx_path))
+    except PermissionError:
+        print(f"Error: 워드 파일 쓰기 권한이 없습니다: {docx_path}")
+        return False
+    except OSError as e:
+        print(f"Error: 워드 파일 쓰기 실패: {docx_path} - {str(e)}")
+        return False
+    except Exception as e:
+        print(f"Error: 예상치 못한 쓰기 오류: {docx_path} - {str(e)}")
+        return False
+
     print(f"변환 완료: {docx_path}")
     return True
 

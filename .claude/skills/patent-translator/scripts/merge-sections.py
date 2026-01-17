@@ -294,14 +294,40 @@ def merge_sections(project_dir: Path, output_file: str = 'translation-final.md')
 
     sections_dir = project_dir / 'sections'
 
-    if not sections_dir.exists():
+    try:
+        if not sections_dir.exists():
+            return {
+                "status": "error",
+                "message": f"sections 폴더를 찾을 수 없습니다: {sections_dir}"
+            }
+    except PermissionError:
         return {
             "status": "error",
-            "message": f"sections 폴더를 찾을 수 없습니다: {sections_dir}"
+            "message": f"sections 폴더 접근 권한이 없습니다: {sections_dir}",
+            "file": str(sections_dir)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"sections 폴더 확인 실패: {sections_dir} - {str(e)}",
+            "file": str(sections_dir)
         }
 
     # 섹션 파일 수집 및 정렬 (section-01, section-02, section-04a, ...)
-    section_files = sorted(sections_dir.glob('section-*.md'))
+    try:
+        section_files = sorted(sections_dir.glob('section-*.md'))
+    except PermissionError:
+        return {
+            "status": "error",
+            "message": f"sections 폴더 읽기 권한이 없습니다: {sections_dir}",
+            "file": str(sections_dir)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"섹션 파일 검색 실패: {sections_dir} - {str(e)}",
+            "file": str(sections_dir)
+        }
 
     if not section_files:
         return {
@@ -319,7 +345,33 @@ def merge_sections(project_dir: Path, output_file: str = 'translation-final.md')
     # 모든 파일을 마커 기반으로 파싱
     all_parsed = {}
     for sf in section_files:
-        content = sf.read_text(encoding='utf-8')
+        try:
+            content = sf.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            return {
+                "status": "error",
+                "message": f"섹션 파일을 찾을 수 없습니다: {sf}",
+                "file": str(sf)
+            }
+        except PermissionError:
+            return {
+                "status": "error",
+                "message": f"섹션 파일 읽기 권한이 없습니다: {sf}",
+                "file": str(sf)
+            }
+        except UnicodeDecodeError:
+            return {
+                "status": "error",
+                "message": f"섹션 파일 인코딩 오류 (UTF-8 필요): {sf}",
+                "file": str(sf)
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"섹션 파일 읽기 실패: {sf} - {str(e)}",
+                "file": str(sf)
+            }
+
         parsed = parse_by_markers(content)
         all_parsed[sf.name] = parsed
 
@@ -390,7 +442,26 @@ def merge_sections(project_dir: Path, output_file: str = 'translation-final.md')
 
     # 저장
     output_path = project_dir / output_file
-    output_path.write_text(merged_content, encoding='utf-8')
+    try:
+        output_path.write_text(merged_content, encoding='utf-8')
+    except PermissionError:
+        return {
+            "status": "error",
+            "message": f"출력 파일 쓰기 권한이 없습니다: {output_path}",
+            "file": str(output_path)
+        }
+    except OSError as e:
+        return {
+            "status": "error",
+            "message": f"출력 파일 쓰기 실패: {output_path} - {str(e)}",
+            "file": str(output_path)
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"예상치 못한 쓰기 오류: {output_path} - {str(e)}",
+            "file": str(output_path)
+        }
 
     # 해시 계산
     file_hash = hashlib.sha256(merged_content.encode('utf-8')).hexdigest()[:16]

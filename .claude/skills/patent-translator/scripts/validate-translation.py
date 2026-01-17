@@ -23,7 +23,18 @@ from typing import List, Dict, Tuple
 class TranslationValidator:
     def __init__(self, target_path: str, source_path: str = None):
         self.target_path = Path(target_path)
-        self.target_text = self.target_path.read_text(encoding='utf-8')
+
+        # 번역 파일 읽기
+        try:
+            self.target_text = self.target_path.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            raise FileNotFoundError(f"번역 파일을 찾을 수 없습니다: {self.target_path}")
+        except PermissionError:
+            raise PermissionError(f"번역 파일 읽기 권한이 없습니다: {self.target_path}")
+        except UnicodeDecodeError:
+            raise UnicodeDecodeError('utf-8', b'', 0, 0, f"번역 파일 인코딩 오류 (UTF-8 필요): {self.target_path}")
+        except Exception as e:
+            raise RuntimeError(f"번역 파일 읽기 실패: {self.target_path} - {str(e)}")
 
         # 프로젝트 디렉토리 찾기 (sections/ 상위)
         self.project_dir = self._find_project_dir()
@@ -33,7 +44,12 @@ class TranslationValidator:
         if source_path:
             source_file = Path(source_path)
             if source_file.exists():
-                self.source_text = source_file.read_text(encoding='utf-8')
+                try:
+                    self.source_text = source_file.read_text(encoding='utf-8')
+                except UnicodeDecodeError:
+                    raise UnicodeDecodeError('utf-8', b'', 0, 0, f"원문 파일 인코딩 오류 (UTF-8 필요): {source_file}")
+                except Exception as e:
+                    raise RuntimeError(f"원문 파일 읽기 실패: {source_file} - {str(e)}")
 
         # 동적 컨텍스트 데이터 로드
         self.context_data = self._load_context_data()
@@ -59,27 +75,37 @@ class TranslationValidator:
         # chunk-context.md에서 핵심 명사 로드
         chunk_context = self.project_dir / 'chunk-context.md'
         if chunk_context.exists():
-            content = chunk_context.read_text(encoding='utf-8')
-            # "## 핵심 명사 상기 상태" 섹션 파싱
-            noun_section = re.search(r'## 핵심 명사.*?\n(.*?)(?=\n##|\Z)', content, re.DOTALL)
-            if noun_section:
-                for line in noun_section.group(1).split('\n'):
-                    # 테이블 행 파싱: | 명사 | 첫 등장 | 상기 필요 |
-                    match = re.match(r'\|\s*([^|]+)\s*\|', line)
-                    if match and match.group(1).strip() not in ['명사', '---', '']:
-                        data['key_nouns'].append(match.group(1).strip())
+            try:
+                content = chunk_context.read_text(encoding='utf-8')
+                # "## 핵심 명사 상기 상태" 섹션 파싱
+                noun_section = re.search(r'## 핵심 명사.*?\n(.*?)(?=\n##|\Z)', content, re.DOTALL)
+                if noun_section:
+                    for line in noun_section.group(1).split('\n'):
+                        # 테이블 행 파싱: | 명사 | 첫 등장 | 상기 필요 |
+                        match = re.match(r'\|\s*([^|]+)\s*\|', line)
+                        if match and match.group(1).strip() not in ['명사', '---', '']:
+                            data['key_nouns'].append(match.group(1).strip())
+            except UnicodeDecodeError:
+                raise UnicodeDecodeError('utf-8', b'', 0, 0, f"컨텍스트 파일 인코딩 오류 (UTF-8 필요): {chunk_context}")
+            except Exception as e:
+                raise RuntimeError(f"컨텍스트 파일 읽기 실패: {chunk_context} - {str(e)}")
 
         # project-tb.md에서 핵심 용어 추가 로드
         project_tb = self.project_dir / 'project-tb.md'
         if project_tb.exists():
-            content = project_tb.read_text(encoding='utf-8')
-            # Korean 열에서 용어 추출
-            for line in content.split('\n'):
-                match = re.match(r'\|[^|]+\|\s*([가-힣\s]+)\s*\|', line)
-                if match and match.group(1).strip() not in ['Korean', '---', '']:
-                    term = match.group(1).strip()
-                    if len(term) >= 2 and term not in data['key_nouns']:
-                        data['key_nouns'].append(term)
+            try:
+                content = project_tb.read_text(encoding='utf-8')
+                # Korean 열에서 용어 추출
+                for line in content.split('\n'):
+                    match = re.match(r'\|[^|]+\|\s*([가-힣\s]+)\s*\|', line)
+                    if match and match.group(1).strip() not in ['Korean', '---', '']:
+                        term = match.group(1).strip()
+                        if len(term) >= 2 and term not in data['key_nouns']:
+                            data['key_nouns'].append(term)
+            except UnicodeDecodeError:
+                raise UnicodeDecodeError('utf-8', b'', 0, 0, f"용어집 파일 인코딩 오류 (UTF-8 필요): {project_tb}")
+            except Exception as e:
+                raise RuntimeError(f"용어집 파일 읽기 실패: {project_tb} - {str(e)}")
 
         return data
 
@@ -333,11 +359,26 @@ def main():
         print(f"Error: 파일을 찾을 수 없습니다: {target_path}")
         sys.exit(1)
 
-    validator = TranslationValidator(target_path, source_path)
-    passed, report = validator.validate_all()
-
-    print(report)
-    sys.exit(0 if passed else 1)
+    try:
+        validator = TranslationValidator(target_path, source_path)
+        passed, report = validator.validate_all()
+        print(report)
+        sys.exit(0 if passed else 1)
+    except FileNotFoundError as e:
+        print(f"Error: {str(e)}")
+        sys.exit(1)
+    except PermissionError as e:
+        print(f"Error: {str(e)}")
+        sys.exit(1)
+    except UnicodeDecodeError as e:
+        print(f"Error: {e.args[4]}")
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"Error: {str(e)}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: 예상치 못한 오류 - {str(e)}")
+        sys.exit(1)
 
 
 if __name__ == '__main__':
